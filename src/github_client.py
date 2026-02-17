@@ -1,28 +1,52 @@
 import requests
 from typing import List, Dict, Optional
-from datetime import datetime
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
+
 class GitHubClient:
     def __init__(self):
         self.token = os.getenv("GITHUB_TOKEN")
         self.username = os.getenv("GITHUB_USERNAME")
+        if not self.token:
+            raise ValueError("GITHUB_TOKEN is not set. Add it to your .env file.")
+        if not self.username:
+            raise ValueError("GITHUB_USERNAME is not set. Add it to your .env file.")
         self.base_url = "https://api.github.com"
         self.headers = {
             "Authorization": f"token {self.token}",
             "Accept": "application/vnd.github.v3+json"
         }
-    
+
+    def _get_paginated(self, url: str, params: Optional[Dict] = None) -> List[Dict]:
+        """Fetch all pages for GitHub list endpoints."""
+        items: List[Dict] = []
+        page = 1
+        while True:
+            page_params = dict(params or {})
+            page_params["per_page"] = 100
+            page_params["page"] = page
+
+            response = requests.get(url, headers=self.headers, params=page_params, timeout=30)
+            response.raise_for_status()
+            chunk = response.json()
+            if not chunk:
+                break
+
+            items.extend(chunk)
+            if len(chunk) < 100:
+                break
+            page += 1
+
+        return items
+
     def get_repositories(self) -> List[Dict]:
         """Fetch all repositories for the user"""
-        url = f"{self.base_url}/users/{self.username}/repos"
-        response = requests.get(url, headers=self.headers)
-        response.raise_for_status()
-        
-        repos = response.json()
+        # /user/repos includes private repos when authenticated.
+        url = f"{self.base_url}/user/repos"
+        repos = self._get_paginated(url)
         return [
             {
                 "name": repo["name"],
@@ -43,11 +67,8 @@ class GitHubClient:
         params = {}
         if since:
             params["since"] = since
-        
-        response = requests.get(url, headers=self.headers, params=params)
-        response.raise_for_status()
-        
-        commits = response.json()
+
+        commits = self._get_paginated(url, params=params)
         return [
             {
                 "sha": commit["sha"],
@@ -64,12 +85,12 @@ class GitHubClient:
         Returns: files_changed, additions, deletions
         """
         url = f"{self.base_url}/repos/{repo_full_name}/commits/{commit_sha}"
-        response = requests.get(url, headers=self.headers)
+        response = requests.get(url, headers=self.headers, timeout=30)
         response.raise_for_status()
-        
+
         commit = response.json()
         stats = commit.get("stats", {})
-        
+
         return {
             "sha": commit_sha,
             "files_changed": len(commit.get("files", [])),

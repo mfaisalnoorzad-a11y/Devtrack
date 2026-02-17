@@ -1,8 +1,9 @@
 from sqlalchemy.orm import Session
 from src.models import User, Repository, Commit
 from src.github_client import GitHubClient
-from datetime import datetime
+from datetime import datetime, timezone
 import os
+import requests
 
 
 class GitHubSyncService:
@@ -17,23 +18,35 @@ class GitHubSyncService:
         """
         username = os.getenv("GITHUB_USERNAME")
         token = os.getenv("GITHUB_TOKEN")
+        if not username:
+            raise ValueError("GITHUB_USERNAME is not set. Add it to your .env file.")
+        if not token:
+            raise ValueError("GITHUB_TOKEN is not set. Add it to your .env file.")
         
         # Get or create user
         user = self.db.query(User).filter(User.github_username == username).first()
         if not user:
-            user = User(github_username=username, github_token=token)
+            user = User(github_username=username, github_token=self._mask_token(token))
             self.db.add(user)
             self.db.commit()
             self.db.refresh(user)
+        else:
+            # Keep a non-sensitive marker instead of the raw token.
+            user.github_token = self._mask_token(token)
+            self.db.commit()
         
         # Sync repositories
-        repos_synced = self._sync_repositories(user)
+        try:
+            repos_synced = self._sync_repositories(user)
         
-        # Sync commits for each repo
-        commits_synced = self._sync_commits(user)
+            # Sync commits for each repo
+            commits_synced = self._sync_commits(user)
+        except requests.RequestException as exc:
+            self.db.rollback()
+            raise RuntimeError(f"GitHub API request failed: {exc}") from exc
         
         # Update last sync time
-        user.last_synced_at = datetime.now()
+        user.last_synced_at = datetime.now(timezone.utc)
         self.db.commit()
         
         return {
@@ -42,6 +55,12 @@ class GitHubSyncService:
             "commits_synced": commits_synced,
             "last_synced": user.last_synced_at.isoformat()
         }
+
+    @staticmethod
+    def _mask_token(token: str) -> str:
+        if len(token) <= 4:
+            return "*" * len(token)
+        return f"{'*' * (len(token) - 4)}{token[-4:]}"
     
     def _sync_repositories(self, user: User) -> int:
         """Sync all repositories for the user"""
