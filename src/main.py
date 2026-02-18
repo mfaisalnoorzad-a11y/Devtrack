@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
+from typing import Optional
 import os
 
 from src.database import engine, get_db, Base
@@ -44,24 +45,44 @@ def sync_github_data(db: Session = Depends(get_db)):
 
 @app.get("/stats")
 def get_stats(db: Session = Depends(get_db)):
-    """Get user statistics"""
+    """Get detailed user statistics"""
     username = os.getenv("GITHUB_USERNAME")
-    if not username:
-        raise HTTPException(status_code=400, detail="GITHUB_USERNAME is not set.")
     user = db.query(models.User).filter(models.User.github_username == username).first()
-
+    
     if not user:
-        raise HTTPException(status_code=404, detail="User not synced yet. Call /sync first.")
-
+        return {"error": "User not synced yet. Call /sync first"}
+    
+    # Basic counts
     repo_count = db.query(models.Repository).filter(models.Repository.user_id == user.id).count()
     commit_count = db.query(models.Commit).join(models.Repository).filter(
         models.Repository.user_id == user.id
     ).count()
     
+    # Language breakdown
+    repos = db.query(models.Repository).filter(models.Repository.user_id == user.id).all()
+    languages = {}
+    for repo in repos:
+        if repo.language:
+            languages[repo.language] = languages.get(repo.language, 0) + 1
+    
+    # Total lines changed
+    commits = db.query(models.Commit).join(models.Repository).filter(
+        models.Repository.user_id == user.id
+    ).all()
+    
+    total_additions = sum(c.additions for c in commits)
+    total_deletions = sum(c.deletions for c in commits)
+    total_files = sum(c.files_changed for c in commits)
+    
     return {
         "username": username,
         "repositories": repo_count,
         "total_commits": commit_count,
+        "languages": languages,
+        "total_lines_added": total_additions,
+        "total_lines_deleted": total_deletions,
+        "total_files_changed": total_files,
+        "net_lines": total_additions - total_deletions,
         "last_synced": user.last_synced_at.isoformat() if user.last_synced_at else None
     }
 
@@ -159,4 +180,44 @@ def get_summary(timeframe: str = "week", db: Session = Depends(get_db)):
         "summary": summary_text,
         "generated_at": now.isoformat(),
         "cached": False
+    }
+
+@app.get("/commits")
+def get_commits(limit: int = 10, repo: Optional[str] = None, db: Session = Depends(get_db)):
+    """
+    Get recent commits
+    limit: number of commits to return (default 10, max 50)
+    repo: filter by repository name (optional)
+    """
+    username = os.getenv("GITHUB_USERNAME")
+    user = db.query(models.User).filter(models.User.github_username == username).first()
+    
+    if not user:
+        return {"error": "User not synced yet. Call /sync first"}
+    
+    limit = min(limit, 50)  # Cap at 50
+    
+    query = db.query(models.Commit).join(models.Repository).filter(
+        models.Repository.user_id == user.id
+    )
+    
+    if repo:
+        query = query.filter(models.Repository.repo_name == repo)
+    
+    commits = query.order_by(models.Commit.author_date.desc()).limit(limit).all()
+    
+    return {
+        "commits": [
+            {
+                "sha": c.commit_sha[:7],
+                "repository": c.repository.repo_name,
+                "message": c.message.split('\n')[0],  # First line only
+                "date": c.author_date.isoformat(),
+                "files_changed": c.files_changed,
+                "additions": c.additions,
+                "deletions": c.deletions
+            }
+            for c in commits
+        ],
+        "count": len(commits)
     }
