@@ -5,7 +5,7 @@ from typing import Optional
 import os
 
 from src.database import engine, get_db, Base
-from src import models
+from src import models, schemas
 from src.services import GitHubSyncService
 
 from datetime import datetime, timedelta, timezone
@@ -29,7 +29,7 @@ def root():
         }
     }
 
-@app.post("/sync")
+@app.post("/sync", response_model=schemas.SyncResponse)
 def sync_github_data(db: Session = Depends(get_db)):
     """Sync GitHub data for the user"""
     try:
@@ -43,14 +43,14 @@ def sync_github_data(db: Session = Depends(get_db)):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Unexpected sync error: {exc}") from exc
 
-@app.get("/stats")
+@app.get("/stats", response_model=schemas.StatsResponse)
 def get_stats(db: Session = Depends(get_db)):
     """Get detailed user statistics"""
     username = os.getenv("GITHUB_USERNAME")
     user = db.query(models.User).filter(models.User.github_username == username).first()
     
     if not user:
-        return {"error": "User not synced yet. Call /sync first"}
+        raise HTTPException(status_code=404, detail="User not synced yet. Call POST /sync first")
     
     # Basic counts
     repo_count = db.query(models.Repository).filter(models.Repository.user_id == user.id).count()
@@ -86,12 +86,12 @@ def get_stats(db: Session = Depends(get_db)):
         "last_synced": user.last_synced_at.isoformat() if user.last_synced_at else None
     }
 
-@app.get("/health")
+@app.get("/health", response_model=schemas.HealthResponse)
 def health():
     return {"status": "healthy"}
 
 
-@app.get("/summary")
+@app.get("/summary", response_model=schemas.SummaryResponse)
 def get_summary(timeframe: str = "week", db: Session = Depends(get_db)):
     """
     Get AI-generated summary of commits
@@ -106,7 +106,7 @@ def get_summary(timeframe: str = "week", db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.github_username == username).first()
 
     if not user:
-        raise HTTPException(status_code=404, detail="User not synced yet. Call /sync first.")
+        raise HTTPException(status_code=404, detail="User not synced yet. Call POST /sync first")
 
     # Calculate date range
     now = datetime.now(timezone.utc)
@@ -125,11 +125,17 @@ def get_summary(timeframe: str = "week", db: Session = Depends(get_db)):
         models.Summary.end_date == end_day
     ).order_by(models.Summary.generated_at.desc()).first()
     if existing_summary:
+        # Recalculate commit count for the same date range
+        cached_commit_count = db.query(models.Commit).join(models.Repository).filter(
+            models.Repository.user_id == user.id,
+            models.Commit.author_date >= start_date
+        ).count()
+        
         return {
             "timeframe": timeframe,
-            "commit_count": None,
+            "commit_count": cached_commit_count,
             "summary": existing_summary.summary_text,
-            "generated_at": existing_summary.generated_at.isoformat() if existing_summary.generated_at else None,
+            "generated_at": existing_summary.generated_at.isoformat(),
             "cached": True
         }
 
@@ -182,7 +188,7 @@ def get_summary(timeframe: str = "week", db: Session = Depends(get_db)):
         "cached": False
     }
 
-@app.get("/commits")
+@app.get("/commits", response_model=schemas.CommitsResponse)
 def get_commits(limit: int = 10, repo: Optional[str] = None, db: Session = Depends(get_db)):
     """
     Get recent commits
@@ -193,7 +199,7 @@ def get_commits(limit: int = 10, repo: Optional[str] = None, db: Session = Depen
     user = db.query(models.User).filter(models.User.github_username == username).first()
     
     if not user:
-        return {"error": "User not synced yet. Call /sync first"}
+        raise HTTPException(status_code=404, detail="User not synced yet. Call POST /sync first")
     
     limit = min(limit, 50)  # Cap at 50
     
