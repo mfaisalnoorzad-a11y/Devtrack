@@ -57,18 +57,24 @@ class GitHubClient:
             for repo in repos
         ]
     
-    def get_commits(self, repo_full_name: str, since: Optional[str] = None) -> List[Dict]:
+    def get_commits(self, repo_full_name: str, since: Optional[str] = None, author: Optional[str] = None) -> List[Dict]:
         """
         Fetch commits for a repository
         repo_full_name: e.g., 'mfaisalnoorzad-a11y/Asteroids'
         since: ISO 8601 date string (e.g., '2026-01-01T00:00:00Z')
+        author: GitHub username to filter commits by author
         """
         url = f"{self.base_url}/repos/{repo_full_name}/commits"
         params = {}
         if since:
             params["since"] = since
-
-        commits = self._get_paginated(url, params=params)
+        if author:
+            params["author"] = author
+    
+        response = requests.get(url, headers=self.headers, params=params)
+        response.raise_for_status()
+    
+        commits = response.json()
         return [
             {
                 "sha": commit["sha"],

@@ -88,14 +88,24 @@ class GitHubSyncService:
         return repos_added
     
     def _sync_commits(self, user: User) -> int:
-        """Sync commits for all repositories"""
+        """Sync commits for all repositories (incremental)"""
         repos = self.db.query(Repository).filter(Repository.user_id == user.id).all()
         commits_added = 0
         
+        # Use last sync time for incremental sync
+        since = None
+        if user.last_synced_at:
+            # Convert to GitHub ISO format (UTC, ends with Z)
+            since = user.last_synced_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+        
         for repo in repos:
-            # Get commits from GitHub
+            # Get commits from GitHub (only new ones, only by this user)
             repo_full_name = f"{user.github_username}/{repo.repo_name}"
-            github_commits = self.github_client.get_commits(repo_full_name)
+            github_commits = self.github_client.get_commits(
+                repo_full_name,
+                since=since,
+                author=user.github_username  # Only get YOUR commits
+            )
             
             for commit_data in github_commits:
                 # Check if commit already exists
