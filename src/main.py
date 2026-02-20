@@ -1,37 +1,108 @@
+"""
+DevTrack API - Main FastAPI application.
+Provides endpoints for syncing GitHub data and generating AI-powered analytics.
+"""
+
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 from typing import Optional
 import os
 
-from src.database import engine, get_db, Base
+from src.database import get_db
 from src import models, schemas
 from src.services import GitHubSyncService
-
 from datetime import datetime, timedelta, timezone
 from src.ai_service import AIService
 
 load_dotenv()
 
-# Create all tables
-Base.metadata.create_all(bind=engine)
+# Initialize FastAPI app
+app = FastAPI(
+    title="DevTrack API",
+    description="AI-powered GitHub activity analytics and insights",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 
-app = FastAPI(title="DevTrack API")
+# CORS middleware (if you add a frontend later)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure appropriately for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.get("/")
+
+# Dependency: Get current user
+def get_current_user(db: Session = Depends(get_db)) -> models.User:
+    """
+    Dependency to get the current authenticated user.
+    
+    Returns:
+        User model instance
+        
+    Raises:
+        HTTPException: If user not found (needs to sync first)
+    """
+    username = os.getenv("GITHUB_USERNAME")
+    if not username:
+        raise HTTPException(
+            status_code=500,
+            detail="GITHUB_USERNAME not configured. Check server environment."
+        )
+    
+    user = db.query(models.User).filter(
+        models.User.github_username == username
+    ).first()
+    
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not synced yet. Call POST /sync first to initialize."
+        )
+    
+    return user
+
+
+@app.get("/", tags=["General"])
 def root():
+    """
+    API root endpoint with service information.
+    
+    Returns basic information about the API and available endpoints.
+    """
     return {
-        "message": "DevTrack API is running",
+        "service": "DevTrack API",
+        "version": "1.0.0",
+        "status": "operational",
+        "documentation": "/docs",
         "endpoints": {
-            "sync": "/sync",
-            "stats": "/stats",
-            "health": "/health"
+            "sync": "POST /sync - Sync GitHub data",
+            "stats": "GET /stats - Get user statistics",
+            "summary": "GET /summary?timeframe=week - Get AI summary",
+            "commits": "GET /commits?limit=10 - Get recent commits",
+            "health": "GET /health - Health check"
         }
     }
 
-@app.post("/sync", response_model=schemas.SyncResponse)
+
+@app.post("/sync", response_model=schemas.SyncResponse, tags=["GitHub Sync"])
 def sync_github_data(db: Session = Depends(get_db)):
-    """Sync GitHub data for the user"""
+    """
+    Sync GitHub repositories and commits to database.
+    
+    Performs incremental sync:
+    - Fetches new repositories
+    - Fetches commits created since last sync
+    - Only includes commits authored by the tracked user
+    
+    Returns:
+        SyncResponse with counts of synced items
+    """
     try:
         service = GitHubSyncService(db)
         result = service.sync_user_data()
@@ -41,25 +112,42 @@ def sync_github_data(db: Session = Depends(get_db)):
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Unexpected sync error: {exc}") from exc
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected sync error: {exc}"
+        ) from exc
 
-@app.get("/stats", response_model=schemas.StatsResponse)
-def get_stats(db: Session = Depends(get_db)):
-    """Get detailed user statistics"""
-    username = os.getenv("GITHUB_USERNAME")
-    user = db.query(models.User).filter(models.User.github_username == username).first()
+
+@app.get("/stats", response_model=schemas.StatsResponse, tags=["Analytics"])
+def get_stats(
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get comprehensive user statistics.
     
-    if not user:
-        raise HTTPException(status_code=404, detail="User not synced yet. Call POST /sync first")
+    Includes:
+    - Repository and commit counts
+    - Programming language breakdown
+    - Total lines added/deleted
+    - Net contribution
     
+    Returns:
+        StatsResponse with all statistics
+    """
     # Basic counts
-    repo_count = db.query(models.Repository).filter(models.Repository.user_id == user.id).count()
+    repo_count = db.query(models.Repository).filter(
+        models.Repository.user_id == user.id
+    ).count()
+    
     commit_count = db.query(models.Commit).join(models.Repository).filter(
         models.Repository.user_id == user.id
     ).count()
     
     # Language breakdown
-    repos = db.query(models.Repository).filter(models.Repository.user_id == user.id).all()
+    repos = db.query(models.Repository).filter(
+        models.Repository.user_id == user.id
+    ).all()
     languages = {}
     for repo in repos:
         if repo.language:
@@ -75,7 +163,7 @@ def get_stats(db: Session = Depends(get_db)):
     total_files = sum(c.files_changed for c in commits)
     
     return {
-        "username": username,
+        "username": user.github_username,
         "repositories": repo_count,
         "total_commits": commit_count,
         "languages": languages,
@@ -86,46 +174,48 @@ def get_stats(db: Session = Depends(get_db)):
         "last_synced": user.last_synced_at.isoformat() if user.last_synced_at else None
     }
 
-@app.get("/health", response_model=schemas.HealthResponse)
-def health():
-    return {"status": "healthy"}
 
-
-@app.get("/summary", response_model=schemas.SummaryResponse)
-def get_summary(timeframe: str = "week", db: Session = Depends(get_db)):
+@app.get("/summary", response_model=schemas.SummaryResponse, tags=["AI Analytics"])
+def get_summary(
+    timeframe: str = "week",
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """
-    Get AI-generated summary of commits
-    timeframe: 'week' or 'month'
+    Get AI-generated summary of commit activity.
+    
+    Uses Claude to analyze commit patterns and generate natural language
+    summaries of development work.
+    
+    Args:
+        timeframe: Either 'week' (last 7 days) or 'month' (last 30 days)
+    
+    Returns:
+        SummaryResponse with AI-generated insights
     """
     if timeframe not in ["week", "month"]:
-        raise HTTPException(status_code=400, detail="timeframe must be 'week' or 'month'")
-
-    username = os.getenv("GITHUB_USERNAME")
-    if not username:
-        raise HTTPException(status_code=400, detail="GITHUB_USERNAME is not set.")
-    user = db.query(models.User).filter(models.User.github_username == username).first()
-
-    if not user:
-        raise HTTPException(status_code=404, detail="User not synced yet. Call POST /sync first")
+        raise HTTPException(
+            status_code=400,
+            detail="timeframe must be 'week' or 'month'"
+        )
 
     # Calculate date range
     now = datetime.now(timezone.utc)
-    if timeframe == "week":
-        start_date = now - timedelta(days=7)
-    else:  # month
-        start_date = now - timedelta(days=30)
-
+    days = 7 if timeframe == "week" else 30
+    start_date = now - timedelta(days=days)
     start_day = start_date.date()
     end_day = now.date()
 
+    # Check for cached summary
     existing_summary = db.query(models.Summary).filter(
         models.Summary.user_id == user.id,
         models.Summary.timeframe == timeframe,
         models.Summary.start_date == start_day,
         models.Summary.end_date == end_day
     ).order_by(models.Summary.generated_at.desc()).first()
+    
     if existing_summary:
-        # Recalculate commit count for the same date range
+        # Return cached summary with recalculated commit count
         cached_commit_count = db.query(models.Commit).join(models.Repository).filter(
             models.Repository.user_id == user.id,
             models.Commit.author_date >= start_date
@@ -158,8 +248,8 @@ def get_summary(timeframe: str = "week", db: Session = Depends(get_db)):
         for commit in commits
     ]
 
+    # Generate AI summary
     try:
-        # Generate AI summary
         ai_service = AIService()
         summary_text = ai_service.generate_summary(commit_data, timeframe)
     except ValueError as exc:
@@ -167,7 +257,10 @@ def get_summary(timeframe: str = "week", db: Session = Depends(get_db)):
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Unexpected summary error: {exc}") from exc
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected summary error: {exc}"
+        ) from exc
 
     # Store summary in database
     new_summary = models.Summary(
@@ -188,19 +281,24 @@ def get_summary(timeframe: str = "week", db: Session = Depends(get_db)):
         "cached": False
     }
 
-@app.get("/commits", response_model=schemas.CommitsResponse)
-def get_commits(limit: int = 10, repo: Optional[str] = None, db: Session = Depends(get_db)):
+
+@app.get("/commits", response_model=schemas.CommitsResponse, tags=["Analytics"])
+def get_commits(
+    limit: int = 10,
+    repo: Optional[str] = None,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """
-    Get recent commits
-    limit: number of commits to return (default 10, max 50)
-    repo: filter by repository name (optional)
+    Get recent commits with optional filtering.
+    
+    Args:
+        limit: Number of commits to return (max 50)
+        repo: Filter by repository name (optional)
+    
+    Returns:
+        CommitsResponse with list of commits
     """
-    username = os.getenv("GITHUB_USERNAME")
-    user = db.query(models.User).filter(models.User.github_username == username).first()
-    
-    if not user:
-        raise HTTPException(status_code=404, detail="User not synced yet. Call POST /sync first")
-    
     limit = min(limit, 50)  # Cap at 50
     
     query = db.query(models.Commit).join(models.Repository).filter(
@@ -227,3 +325,13 @@ def get_commits(limit: int = 10, repo: Optional[str] = None, db: Session = Depen
         ],
         "count": len(commits)
     }
+
+
+@app.get("/health", response_model=schemas.HealthResponse, tags=["General"])
+def health():
+    """
+    Health check endpoint.
+    
+    Returns service health status for monitoring/load balancers.
+    """
+    return {"status": "healthy"}
