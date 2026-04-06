@@ -62,6 +62,10 @@ Track your development activity, analyze commit patterns, and get AI-generated i
 └─────────────┘
 ```
 
+## Motivation
+
+Many developer tools can show commit history, but they usually stop at raw activity logs and basic charts. DevTrack was built to make GitHub activity more meaningful by combining automated repository syncing, author-focused commit tracking, AI-generated weekly summaries, and developer analytics in one place. Instead of just showing what happened, it helps users understand their coding patterns, measure progress over time, and get useful insights from their real development work.
+
 ## 🚀 Quick Start
 
 ### Prerequisites
