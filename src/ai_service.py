@@ -4,8 +4,9 @@ Generates intelligent summaries of commit activity.
 """
 
 from anthropic import Anthropic, APIError, RateLimitError, AuthenticationError
-import os
-from typing import List, Dict, Optional
+from typing import List, Dict
+
+from src.config import get_settings
 
 
 class AIService:
@@ -23,12 +24,8 @@ class AIService:
         Raises:
             ValueError: If ANTHROPIC_API_KEY not set in environment
         """
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "ANTHROPIC_API_KEY environment variable is required. "
-                "Get your API key at https://console.anthropic.com"
-            )
+        settings = get_settings()
+        api_key = settings.anthropic_api_key
         self.client = Anthropic(api_key=api_key)
         self.model = "claude-sonnet-4-20250514"  # Best balance of speed/quality/cost
 

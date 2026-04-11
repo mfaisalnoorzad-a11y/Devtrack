@@ -4,41 +4,32 @@ Provides endpoints for syncing GitHub data and generating AI-powered analytics.
 """
 
 from fastapi import FastAPI, Depends, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from dotenv import load_dotenv
 from typing import Optional
-import os
 
 from src.database import get_db
 from src import models, schemas
 from src.services import GitHubSyncService
 from datetime import datetime, timedelta, timezone
 from src.ai_service import AIService
-
-load_dotenv()
+from src.auth import require_api_key
+from src.config import Settings, get_settings
 
 # Initialize FastAPI app
+settings = get_settings()
 app = FastAPI(
-    title="DevTrack API",
+    title=settings.app_name,
     description="AI-powered GitHub activity analytics and insights",
-    version="1.0.0",
+    version=settings.app_version,
     docs_url="/docs",
     redoc_url="/redoc"
 )
 
-# CORS middleware (if you add a frontend later)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
 # Dependency: Get current user
-def get_current_user(db: Session = Depends(get_db)) -> models.User:
+def get_current_user(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> models.User:
     """
     Dependency to get the current authenticated user.
     
@@ -48,15 +39,8 @@ def get_current_user(db: Session = Depends(get_db)) -> models.User:
     Raises:
         HTTPException: If user not found (needs to sync first)
     """
-    username = os.getenv("GITHUB_USERNAME")
-    if not username:
-        raise HTTPException(
-            status_code=500,
-            detail="GITHUB_USERNAME not configured. Check server environment."
-        )
-    
     user = db.query(models.User).filter(
-        models.User.github_username == username
+        models.User.github_username == settings.github_username
     ).first()
     
     if not user:
@@ -77,9 +61,10 @@ def root():
     """
     return {
         "service": "DevTrack API",
-        "version": "1.0.0",
+        "version": settings.app_version,
         "status": "operational",
         "documentation": "/docs",
+        "api_key_auth_enabled": settings.api_key_auth_enabled,
         "endpoints": {
             "sync": "POST /sync - Sync GitHub data",
             "stats": "GET /stats - Get user statistics",
@@ -91,7 +76,10 @@ def root():
 
 
 @app.post("/sync", response_model=schemas.SyncResponse, tags=["GitHub Sync"])
-def sync_github_data(db: Session = Depends(get_db)):
+def sync_github_data(
+    _: None = Depends(require_api_key),
+    db: Session = Depends(get_db),
+):
     """
     Sync GitHub repositories and commits to database.
     
@@ -120,6 +108,7 @@ def sync_github_data(db: Session = Depends(get_db)):
 
 @app.get("/stats", response_model=schemas.StatsResponse, tags=["Analytics"])
 def get_stats(
+    _: None = Depends(require_api_key),
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -178,6 +167,7 @@ def get_stats(
 @app.get("/summary", response_model=schemas.SummaryResponse, tags=["AI Analytics"])
 def get_summary(
     timeframe: str = "week",
+    _: None = Depends(require_api_key),
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -286,6 +276,7 @@ def get_summary(
 def get_commits(
     limit: int = 10,
     repo: Optional[str] = None,
+    _: None = Depends(require_api_key),
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):

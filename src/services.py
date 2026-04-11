@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 from src.models import User, Repository, Commit
 from src.github_client import GitHubClient
 from datetime import datetime, timezone
-import os
-import requests
+
+from src.config import get_settings
 
 
 class GitHubSyncService:
@@ -52,13 +52,9 @@ class GitHubSyncService:
             ValueError: If required environment variables not set
             RuntimeError: If GitHub API requests fail
         """
-        username = os.getenv("GITHUB_USERNAME")
-        token = os.getenv("GITHUB_TOKEN")
-        
-        if not username:
-            raise ValueError("GITHUB_USERNAME environment variable is required.")
-        if not token:
-            raise ValueError("GITHUB_TOKEN environment variable is required.")
+        settings = get_settings()
+        username = settings.github_username
+        token = settings.github_token
         
         # Get or create user
         user = self.db.query(User).filter(User.github_username == username).first()
@@ -79,9 +75,9 @@ class GitHubSyncService:
         try:
             repos_synced = self._sync_repositories(user)
             commits_synced = self._sync_commits(user)
-        except requests.RequestException as exc:
+        except Exception:
             self.db.rollback()
-            raise RuntimeError(f"GitHub API request failed: {exc}") from exc
+            raise
         
         # Update last sync timestamp
         user.last_synced_at = datetime.now(timezone.utc)

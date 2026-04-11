@@ -5,11 +5,9 @@ Handles authentication, pagination, and data fetching from GitHub's REST API.
 
 import requests
 from typing import List, Dict, Optional
-import os
-from dotenv import load_dotenv
 import time
 
-load_dotenv()
+from src.config import get_settings
 
 
 class GitHubClient:
@@ -30,17 +28,10 @@ class GitHubClient:
         Raises:
             ValueError: If GITHUB_TOKEN or GITHUB_USERNAME not set
         """
-        self.token = os.getenv("GITHUB_TOKEN")
-        self.username = os.getenv("GITHUB_USERNAME")
-        
-        if not self.token:
-            raise ValueError(
-                "GITHUB_TOKEN environment variable is required. "
-                "Create a personal access token at https://github.com/settings/tokens"
-            )
-        if not self.username:
-            raise ValueError("GITHUB_USERNAME environment variable is required.")
-        
+        settings = get_settings()
+        self.token = settings.github_token
+        self.username = settings.github_username
+
         self.base_url = "https://api.github.com"
         self.headers = {
             "Authorization": f"token {self.token}",
