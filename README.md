@@ -1,241 +1,208 @@
-# DevTrack 🚀
+# DevTrack
 
-> AI-powered GitHub activity analytics with intelligent weekly summaries
+AI-powered GitHub activity analytics backend built with FastAPI, SQLAlchemy, PostgreSQL, and Anthropic.
 
-Track your development activity, analyze commit patterns, and get AI-generated insights about your coding journey using Claude.
+DevTrack syncs your repositories and commits into PostgreSQL, exposes an API for developer analytics, and generates weekly or monthly summaries of your coding activity. This version is polished as a backend portfolio project and prepared for an initial deployment.
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109-green.svg)](https://fastapi.tiangolo.com)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue.svg)](https://postgresql.org)
 
-## ✨ Features
+## What It Does
 
-- 🔄 **Automated GitHub Sync** - Incremental syncing with smart pagination
-- 🤖 **AI-Powered Summaries** - Claude analyzes your commits and generates insights
-- 📊 **Developer Analytics** - Track languages, productivity metrics, and patterns
-- ⚡ **Smart Caching** - Reduces API costs by caching generated summaries
-- 🎯 **Author Filtering** - Only tracks YOUR commits (perfect for team repos)
-- 🔒 **Type-Safe API** - Pydantic models for validated responses
+- Syncs your GitHub repositories and commits into PostgreSQL
+- Filters imported commits to your GitHub username
+- Provides API endpoints for sync, stats, summaries, recent commits, and health checks
+- Generates cached AI summaries from synced commit history
+- Supports optional API-key protection for sensitive routes
 
-## 🏗️ Architecture
-```
-┌─────────────┐
-│   GitHub    │
-│     API     │
-└──────┬──────┘
-       │
-       │ Fetch repos & commits
-       ▼
-┌─────────────────────────────┐
-│      FastAPI Backend        │
-│  ┌─────────────────────┐   │
-│  │  GitHub Client      │   │
-│  │  - Pagination       │   │
-│  │  - Auth filtering   │   │
-│  └──────────┬──────────┘   │
-│             │               │
-│  ┌──────────▼──────────┐   │
-│  │   Sync Service      │   │
-│  │  - Incremental sync │   │
-│  │  - Deduplication    │   │
-│  └──────────┬──────────┘   │
-│             │               │
-│  ┌──────────▼──────────┐   │
-│  │   PostgreSQL DB     │   │
-│  │  - Users            │   │
-│  │  - Repositories     │   │
-│  │  - Commits          │   │
-│  │  - Summaries        │   │
-│  └──────────┬──────────┘   │
-│             │               │
-│  ┌──────────▼──────────┐   │
-│  │   AI Service        │───┼──► Anthropic
-│  │  - Prompt building  │   │    Claude API
-│  │  - Cache check      │   │
-│  └─────────────────────┘   │
-└─────────────────────────────┘
-       │
-       │ REST API
-       ▼
-┌─────────────┐
-│   Client    │
-└─────────────┘
+## Architecture
+
+```text
+GitHub API
+    |
+    v
+GitHubClient -> GitHubSyncService -> PostgreSQL
+                                   |
+                                   v
+                               FastAPI API
+                                   |
+                                   v
+                               AIService
 ```
 
-## 🎯 Motivation
+## Tech Stack
 
-Many developer tools can show commit history, but they usually stop at raw activity logs and basic charts. DevTrack was built to make GitHub activity more meaningful by combining automated repository syncing, author-focused commit tracking, AI-generated weekly summaries, and developer analytics in one place. Instead of just showing what happened, it helps users understand their coding patterns, measure progress over time, and get useful insights from their real development work.
-
-## 🚀 Quick Start
-
-### Prerequisites
 - Python 3.10+
-- PostgreSQL 16+
-- GitHub Personal Access Token ([create one](https://github.com/settings/tokens))
-- Anthropic API Key ([get free credits](https://console.anthropic.com))
+- FastAPI
+- SQLAlchemy 2.0
+- PostgreSQL
+- Pydantic
+- requests
+- Anthropic SDK
+- pytest
 
-### Installation
+## Project Structure
 
-1. **Clone the repository**
+```text
+devtrack/
+|- migrations/
+|  |- 001_initial_schema.sql
+|- src/
+|  |- ai_service.py
+|  |- auth.py
+|  |- config.py
+|  |- database.py
+|  |- github_client.py
+|  |- main.py
+|  |- models.py
+|  |- schemas.py
+|  |- services.py
+|- tests/
+|  |- conftest.py
+|  |- test_api.py
+|- .env.example
+|- pytest.ini
+|- requirements.txt
+|- README.md
+```
+
+## Environment Variables
+
+Copy `.env.example` to `.env` and fill in your values.
+
+```env
+GITHUB_TOKEN=your_github_pat
+GITHUB_USERNAME=your_github_username
+ANTHROPIC_API_KEY=your_anthropic_key
+DATABASE_URL=postgresql://username:password@localhost:5432/devtrack_db
+DEVTRACK_API_KEY=optional_api_key_for_protected_routes
+```
+
+### Notes
+
+- `DEVTRACK_API_KEY` is optional. If you set it, protected routes require either `Authorization: Bearer <key>` or `X-API-Key: <key>`.
+- Keep `.env` private. Never commit real secrets.
+
+## Local Setup
+
+1. Clone the repository.
+
 ```bash
 git clone https://github.com/mfaisalnoorzad-a11y/devtrack.git
 cd devtrack
 ```
 
-2. **Set up virtual environment**
+2. Create and activate a virtual environment.
+
 ```bash
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+python -m venv venv
 ```
 
-3. **Install dependencies**
+Windows PowerShell:
+
+```powershell
+.\venv\Scripts\Activate.ps1
+```
+
+macOS / Linux:
+
+```bash
+source venv/bin/activate
+```
+
+3. Install dependencies.
+
 ```bash
 pip install -r requirements.txt
 ```
 
-4. **Configure environment**
-```bash
-cp .env.example .env
-# Edit .env with your actual credentials
-```
+4. Create `.env` from `.env.example` and fill in real credentials.
 
-5. **Set up PostgreSQL**
+5. Create the PostgreSQL database and run the schema migration.
+
 ```bash
-# Create database and user
 psql -U postgres
 CREATE DATABASE devtrack_db;
-CREATE USER devtrack_user WITH PASSWORD 'your_password';
-GRANT ALL PRIVILEGES ON DATABASE devtrack_db TO devtrack_user;
-GRANT ALL ON SCHEMA public TO devtrack_user;
 \q
-
-# Run migrations
-psql -U devtrack_user -d devtrack_db -h localhost -f migrations/001_initial_schema.sql
+psql -U postgres -d devtrack_db -f migrations/001_initial_schema.sql
 ```
 
-6. **Start the server**
+6. Start the development server.
+
 ```bash
 uvicorn src.main:app --reload
 ```
 
-Visit `http://localhost:8000/docs` for interactive API documentation.
+7. Open the interactive docs at [http://localhost:8000/docs](http://localhost:8000/docs).
 
-## 📡 API Endpoints
+## API Overview
 
-### Sync GitHub Data
+### `GET /health`
+
+Public health check for local verification and deployment platforms.
+
+### `POST /sync`
+
+Protected route that pulls repositories and commits from GitHub and stores them locally.
+
 ```bash
-curl -X POST http://localhost:8000/sync
-```
-**Response:**
-```json
-{
-  "username": "mfaisalnoorzad-a11y",
-  "repositories_synced": 2,
-  "commits_synced": 10,
-  "last_synced": "2026-02-18T..."
-}
+curl -X POST http://localhost:8000/sync \
+  -H "X-API-Key: your_api_key"
 ```
 
-### Get AI Summary
+### `GET /stats`
+
+Protected route that returns repository counts, commit counts, language breakdown, and aggregate line and file metrics.
+
+### `GET /summary?timeframe=week`
+
+Protected route that returns a cached or freshly generated AI summary for the requested timeframe.
+
+### `GET /commits?limit=10&repo=devtrack`
+
+Protected route that returns recent commits, optionally filtered by repository.
+
+## Testing
+
+Run the test suite with:
+
 ```bash
-curl "http://localhost:8000/summary?timeframe=week"
-```
-**Response:**
-```json
-{
-  "timeframe": "week",
-  "commit_count": 15,
-  "summary": "This week you focused on...",
-  "cached": false
-}
+python -m pytest -q
 ```
 
-### Get Statistics
+The tests use SQLite in memory so they stay fast and do not depend on your PostgreSQL instance.
+
+## Deployment Notes
+
+For Railway, configure these environment variables:
+
+- `DATABASE_URL`
+- `GITHUB_TOKEN`
+- `GITHUB_USERNAME`
+- `ANTHROPIC_API_KEY`
+- `DEVTRACK_API_KEY`
+
+Recommended start command:
+
 ```bash
-curl http://localhost:8000/stats
+gunicorn -k uvicorn.workers.UvicornWorker src.main:app
 ```
 
-### Get Recent Commits
-```bash
-curl "http://localhost:8000/commits?limit=10&repo=YourRepo"
-```
+## Portfolio Highlights
 
-## 🎯 Key Features Explained
+This project demonstrates:
 
-### Incremental Sync
-Only fetches commits created since the last sync, dramatically reducing API calls:
-```python
-# First sync: fetches all commits
-# Subsequent syncs: only new commits since last_synced_at
-```
+- backend API design with FastAPI
+- relational schema design with SQLAlchemy and PostgreSQL
+- external API integration with pagination and retries
+- AI-powered summarization over real developer activity data
+- incremental sync logic and cached summaries
+- deployment-focused hardening such as config centralization, optional auth, and tests
 
-### Author Filtering
-Filters commits to only include yours, perfect for collaborative repos:
-```python
-github_client.get_commits(repo, author=username)
-```
+## Author
 
-### Smart Caching
-Summaries are cached by timeframe and date range to minimize AI API costs:
-```python
-# Same day + timeframe = returns cached summary
-# Different day = generates new summary
-```
+Mohammad Faisal Noorzad
 
-## 📁 Project Structure
-```
-devtrack/
-├── src/
-│   ├── main.py           # FastAPI app + route handlers
-│   ├── models.py         # SQLAlchemy database models
-│   ├── schemas.py        # Pydantic response models
-│   ├── database.py       # DB connection & session management
-│   ├── github_client.py  # GitHub API wrapper
-│   ├── services.py       # Business logic (sync operations)
-│   └── ai_service.py     # Anthropic Claude integration
-├── migrations/
-│   └── 001_initial_schema.sql
-├── .env.example          # Environment template
-├── requirements.txt      # Python dependencies
-└── README.md
-```
-
-## 🔧 Tech Stack Details
-
-| Component | Technology | Why |
-|-----------|-----------|-----|
-| **API Framework** | FastAPI | Fast, automatic OpenAPI docs, type hints |
-| **Database** | PostgreSQL | Relational data, ACID compliance, JSON support |
-| **ORM** | SQLAlchemy 2.0 | Type-safe queries, relationship management |
-| **AI** | Anthropic Claude | Superior summarization, fast, affordable |
-| **Validation** | Pydantic | Type-safe request/response models |
-
-## 🎓 What I Learned
-
-- **RESTful API Design:** Built clean endpoints with proper HTTP semantics
-- **Database Modeling:** Normalized schema with foreign keys and constraints
-- **External API Integration:** Handled pagination, rate limits, authentication
-- **Caching Strategies:** Reduced costs by caching expensive AI operations
-- **Incremental Sync:** Optimized data fetching for large datasets
-- **Type Safety:** Used Pydantic for runtime validation
-
-## 🚧 Future Enhancements
-
-- [ ] Docker containerization
-- [ ] CI/CD pipeline with GitHub Actions  
-- [ ] AWS deployment (EC2 + RDS)
-- [ ] React dashboard frontend
-- [ ] GitHub webhooks for real-time sync
-- [ ] Multi-user support with authentication
-- [ ] Commit streak tracking
-- [ ] Language trend analysis over time
-
-## 📝 License
-
-MIT License - see LICENSE file for details
-
-## 👤 Author
-
-**Mohammad Faisal Noorzad**
 - GitHub: [@mfaisalnoorzad-a11y](https://github.com/mfaisalnoorzad-a11y)
 - LinkedIn: [Mohammad Faisal Noorzad](https://linkedin.com/in/mohammad-faisal-noorzad-26561831b)
