@@ -8,6 +8,12 @@ DevTrack syncs your repositories and commits into PostgreSQL, exposes an API for
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109-green.svg)](https://fastapi.tiangolo.com)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue.svg)](https://postgresql.org)
 
+## Live Demo
+
+- API Root: https://devtrack-production-99e3.up.railway.app/
+- API Docs: https://devtrack-production-99e3.up.railway.app/docs
+- Health Check: https://devtrack-production-99e3.up.railway.app/health
+
 ## What It Does
 
 - Syncs your GitHub repositories and commits into PostgreSQL
@@ -15,6 +21,16 @@ DevTrack syncs your repositories and commits into PostgreSQL, exposes an API for
 - Provides API endpoints for sync, stats, summaries, recent commits, and health checks
 - Generates cached AI summaries from synced commit history
 - Supports optional API-key protection for sensitive routes
+
+## Screenshots
+
+### API Documentation
+
+![DevTrack API Docs](assets/devtrack-api-docs.png)
+
+### AI Summary Response
+
+![DevTrack AI Summary](assets/devtrack-ai-summary.png)
 
 ## Architecture
 
