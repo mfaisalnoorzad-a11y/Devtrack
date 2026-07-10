@@ -221,4 +221,4 @@ This project demonstrates:
 Mohammad Faisal Noorzad
 
 - GitHub: [@mfaisalnoorzad-a11y](https://github.com/mfaisalnoorzad-a11y)
-- LinkedIn: [Mohammad Faisal Noorzad](https://linkedin.com/in/mohammad-faisal-noorzad-26561831b)
+- LinkedIn: [Mohammad Faisal Noorzad](https://www.linkedin.com/in/faisal-noorzad-26561831b/)
